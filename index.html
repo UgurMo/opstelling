@@ -235,7 +235,7 @@ footer{border-top:1px solid #eee;padding:12px 20px;color:#666}
   <section class="totals" style="padding:0 20px 20px">
     <h2>Speeltijd per speler</h2>
     <ul id="totalsList" style="margin:8px 0 0 0; padding-left:18px"></ul>
-    <p class="hint">Telling: veldpositie = 1 kwart · staging (onder positie) = 0,5 kwart · reserve = 0.</p>
+    <p class="hint">Telling: veldpositie = 1 kwart · staging (onder positie) = 0,5 kwart · reserve = 0 (max 1,0 per kwart).</p>
   </section>
 
   <!-- Picker -->
@@ -659,13 +659,12 @@ function assignPlayerToSlot(name,slotEl){
   closePicker();
 }
 
-/* ====== SPEELTIJD TELLEN ====== */
+/* ====== SPEELTIJD TELLEN (met cap 1,0 per kwart) ====== */
 function computeQuarterTotals(prefix){
-  // cap per speler per kwart op max 1.0
-  const totals = new Map();    // name -> kwartdelen
-  const seenInField = new Set(); // spelers die al 1.0 hebben (veld)
+  const totals = new Map();     // name -> kwartdelen
+  const seenInField = new Set();// spelers die 1.0 (veld) hebben
 
-  // 1) hoofdslots: 1.0 en markeren als 'veld'
+  // hoofdslots: 1.0 en markeren als veld
   SLOT_KEYS.forEach(k=>{
     const el = document.querySelector(`[data-slot="${prefix}-${k}"]`);
     const name = normalizeName(el?.textContent);
@@ -675,8 +674,7 @@ function computeQuarterTotals(prefix){
     }
   });
 
-  // 2) staging-slots: alleen tellen als speler nog niet in 'veld' staat
-  //    en cap blijft max 1.0
+  // staging: 0.5, maar alleen als niet al in veld; cap blijft 1.0
   STAGING_KEYS.forEach(k=>{
     const el = document.querySelector(`[data-slot="${prefix}-${k}"]`);
     const name = normalizeName(el?.textContent);
@@ -686,10 +684,34 @@ function computeQuarterTotals(prefix){
     }
   });
 
-  // reserves: 0 (niks doen)
   return totals;
 }
+function computeAllTotals(){
+  const sum = new Map();
+  ['q1','q2','q3','q4'].forEach(q=>{
+    const t = computeQuarterTotals(q);
+    t.forEach((v,name)=> sum.set(name, (sum.get(name)||0)+v));
+  });
+  state.players.forEach(p=>{ if(!sum.has(p.name)) sum.set(p.name, 0); });
+  return sum;
+}
+function updateTotalsUI(){
+  const list = document.getElementById('totalsList');
+  if(!list) return;
+  const nf = new Intl.NumberFormat('nl-NL', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
+  const sum = computeAllTotals();
 
+  const playersByOrder = [...state.players].sort((a,b)=> a.order - b.order)
+    .map(p => ({ name:p.name, val: sum.get(p.name) ?? 0 }));
+
+  list.innerHTML = '';
+  playersByOrder.forEach(({name,val})=>{
+    const li = document.createElement('li');
+    const formatted = nf.format(val).replace('.', ','); // 3.5 -> 3,5
+    li.textContent = `${name}: ${formatted} kwart`;
+    list.appendChild(li);
+  });
+}
 
 /* ====== BUTTONS ====== */
 document.getElementById('generateBtn').addEventListener('click',()=>{renderPlayers();generateAll();});
