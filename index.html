@@ -1,104 +1,367 @@
 <!doctype html>
 <html lang="nl">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Teamopstelling 3-3-1 – 4 kwarten (v3.8-touchdrag)</title>
-<style>
-*{box-sizing:border-box}html,body{margin:0;padding:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial,sans-serif;color:#111}
-header{padding:16px 20px;border-bottom:1px solid #eee}
-h1{margin:0 0 4px;font-size:22px}.sub{margin:0;color:#555}
-.quarters{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:16px;padding:20px}
-.quarter{border:1px solid #eee;border-radius:12px;padding:12px}
-.pitch{background:#e9f7e9;border:1px solid #cfe8cf;border-radius:12px;padding:12px;margin:8px 0}
-.row{display:flex;gap:8px;justify-content:space-between;margin:8px 0}
-.slot,.staging-slot{flex:1;min-height:44px;background:#fff;border:1px solid #c4dec4;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:grab;touch-action:none;-webkit-user-select:none;user-select:none}
-.slot.wide,.staging-slot.wide{flex:2}
-.reserves{padding:8px;background:#e7f3ff;border:1px solid #bcd6f8;border-radius:10px}
-.reserve-list{display:flex;flex-direction:column;gap:6px;min-height:44px;border:1px dashed #bcd6f8;border-radius:8px;padding:8px;background:#e7f3ff}
-.reserve-item{padding:6px 8px;border:1px solid #bcd6f8;border-radius:6px;background:#e7f3ff;cursor:grab;touch-action:none;-webkit-user-select:none;user-select:none}
-.droppable{box-shadow:0 0 0 2px #a3d2a3 inset}
-/* tap-select cues */
-.reserve-item.selected{outline:2px solid #6ab1ff}
-.slot.tap-target,.staging-slot.tap-target,.reserve-list.tap-target{box-shadow:0 0 0 2px #6ab1ff inset}
-.drag-chip{position:fixed;pointer-events:none;z-index:9999;padding:6px 10px;border:1px solid #bcd6f8;background:#e7f3ff;border-radius:999px;box-shadow:0 6px 18px rgba(0,0,0,.2)}
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Opstelling & Reserves – Drag & Drop</title>
+  <style>
+    :root{
+      --bg: #f7f7fb;
+      --green-bg:#e8f7e8; --green-br:#9bd09b;
+      --blue-bg:#e8f0ff;  --blue-br:#9bb2ff;
+      --slot-bg:#fff; --text:#101323; --muted:#667085;
+      --focus:#5a8cff; --danger:#e65a5a;
+      --radius:14px;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Inter,Arial,sans-serif;
+      color:var(--text); background:var(--bg);
+      display:flex; flex-direction:column; gap:18px; padding:18px;
+    }
+    header{display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap}
+    h1{font-size:20px; margin:0}
+    .actions{display:flex; gap:8px}
+    button{
+      border:1px solid #d0d5dd; background:#fff; padding:8px 12px; border-radius:10px; cursor:pointer;
+    }
+    button.primary{background:#111827; color:#fff; border-color:#111827}
+    button.danger{border-color:var(--danger); color:var(--danger); background:#fff}
+    section.area{
+      padding:14px; border-radius:var(--radius); border:2px dashed;
+    }
+    .green{ background:var(--green-bg); border-color:var(--green-br); }
+    .blue{  background:var(--blue-bg);  border-color:var(--blue-br); }
+    h2{margin:0 0 10px 0; font-size:18px}
+    .slots{
+      display:grid; gap:12px;
+      grid-template-columns: repeat(3, minmax(0,1fr));
+    }
+    @media (max-width:560px){
+      .slots{grid-template-columns: repeat(2, minmax(0,1fr));}
+    }
+    .slot, .player{
+      background:var(--slot-bg); border-radius:12px; min-height:52px;
+      display:flex; align-items:center; justify-content:center;
+      padding:12px; border:1px solid #e5e7eb; box-shadow:0 1px 0 rgba(16,24,40,.04);
+    }
+    .slot{
+      position:relative; user-select:none;
+    }
+    .slot.empty{color:var(--muted)}
+    .slot.empty::after{content:"—"; opacity:.6}
+    .player{ cursor:grab; touch-action:none }
+    .drag-over{ outline:2px solid var(--focus); outline-offset:2px }
+    .players{ display:flex; flex-direction:column; gap:12px }
+    footer{font-size:12px; color:var(--muted)}
+    .hint{font-size:12px; color:var(--muted); margin-top:8px}
+  </style>
 </head>
 <body>
-<header><h1>Teamopstelling 3-3-1 – 4 kwarten</h1><p class="sub">8 spelers (incl. keeper) · 11 totaal</p></header>
+  <header>
+    <h1>Opstelling &amp; Reserves</h1>
+    <div class="actions">
+      <button class="primary" id="exportJson">Exporteer JSON</button>
+      <button id="importJson">Importeer JSON</button>
+      <button class="danger" id="resetAll">Reset</button>
+    </div>
+  </header>
 
-<section class="quarters" id="quarters"></section>
+  <!-- BASISOPSTELLING -->
+  <section class="area green" aria-labelledby="lbl-basis">
+    <h2 id="lbl-basis">Basisopstelling</h2>
+    <div id="starters" class="slots" role="grid" aria-describedby="hint-basis"></div>
+    <div id="hint-basis" class="hint">Sleep spelers naar een vakje. Klik/tik op een speler en daarna op een vakje werkt ook.</div>
+  </section>
 
-<script>
-const PLAYERS=["Jim","Levi","Lou","Kanis","Zeid","Remy","Ali","Devaino","Nova","Sam","Aiden"];
-const layout=['d1','d2','d3','m1','m2','m3','f1'];
-const qNames=['q1','q2','q3','q4'];
-const quarters=document.getElementById('quarters');
+  <!-- RESERVES -->
+  <section class="area blue" aria-labelledby="lbl-res">
+    <h2 id="lbl-res">Reserves</h2>
+    <div id="reserves" class="players" role="list" aria-describedby="hint-res"></div>
+    <div id="hint-res" class="hint">Sleep om te herorden. Sleep een speler terug naar Reserves om een vakje leeg te maken.</div>
+  </section>
 
-/* bouw veld */
-qNames.forEach(q=>{
-  const div=document.createElement('div');
-  div.className='quarter';
-  div.innerHTML=`<h3>${q.toUpperCase()}</h3>
-  <div class="pitch">
-    <div class="row"><div class="slot wide" data-slot="${q}-gk">—</div></div>
-    <div class="row">${layout.slice(0,3).map(p=>`<div class="slot" data-slot="${q}-${p}">—</div>`).join('')}</div>
-    <div class="row">${layout.slice(3,6).map(p=>`<div class="slot" data-slot="${q}-${p}">—</div>`).join('')}</div>
-    <div class="row"><div class="slot wide" data-slot="${q}-f1">—</div></div>
-  </div>
-  <div class="reserves"><h4>Reserves</h4><div id="${q}-res" class="reserve-list" data-quarter="${q}"></div></div>`;
-  quarters.appendChild(div);
-});
+  <footer>Data wordt automatisch opgeslagen in je browser (localStorage).</footer>
 
-/* helpers */
-function appendToReserve(q,name){
-  const list=document.getElementById(`${q}-res`);
-  const d=document.createElement('div');d.className='reserve-item';d.textContent=name;d.dataset.name=name;
-  list.appendChild(d);
-  hookReserveDnD(d,q);
-  hookReserveTap(d,q);
-}
-function removeNameFromQuarter(q,name){
-  document.querySelectorAll(`[data-slot^="${q}-"]`).forEach(el=>{if(el.textContent===name)el.textContent='—';});
-  document.querySelectorAll(`#${q}-res .reserve-item`).forEach(el=>{if(el.textContent===name)el.remove();});
-}
+  <script>
+    /***************
+     * CONFIG
+     ***************/
+    const SLOT_COUNT = 6; // aantal posities in de basis
+    const DEFAULT_STATE = {
+      starters: [null, null, "Devaino", null, null, null],
+      reserves: ["Nova", "Sam", "Aiden"]
+    };
+    const STORAGE_KEY = "lineup-state-v1";
 
-/* ---- drag voor veld en reserves ---- */
-function hookSlotDnD(slot){
-  slot.draggable=true;
-  slot.addEventListener('dragstart',e=>{
-    e.dataTransfer.setData('text/plain',slot.textContent);
-    window.dragInfo={name:slot.textContent,q:slot.dataset.slot.split('-')[0],origin:slot};
-  });
-  slot.addEventListener('dragover',e=>{
-    const d=window.dragInfo;if(!d)return;
-    if(d.q!==slot.dataset.slot.split('-')[0])return;
-    e.preventDefault();slot.classList.add('droppable');
-  });
-  slot.addEventListener('dragleave',()=>slot.classList.remove('droppable'));
-  slot.addEventListener('drop',e=>{
-    e.preventDefault();const d=window.dragInfo;if(!d)return;
-    const to=slot.textContent,q=d.q;
-    if(to&&to!=='—'){appendToReserve(q,to);}
-    removeNameFromQuarter(q,d.name);
-    slot.textContent=d.name;
-    slot.classList.remove('droppable');window.dragInfo=null;
-  });
-}
-function hookReserveDnD(div,q){
-  div.draggable=true;
-  div.addEventListener('dragstart',e=>{
-    e.dataTransfer.setData('text/plain',div.textContent);
-    window.dragInfo={name:div.textContent,q,origin:div};
-  });
-}
-function enableDnD(){
-  document.querySelectorAll('.slot').forEach(hookSlotDnD);
-}
+    /***************
+     * STATE
+     ***************/
+    let state = loadState();
 
-/* ---- tap select (iOS) ---- */
-let tapSel=null;
-function clearTapState(){
-  document.querySelectorAll('.selected').forEach(e=>e.classList.remove('selected'));
-  document.querySelectorAll('.tap-target').forEach(e=>e.classList.remove('tap-target'));
-  tapSel=null
+    function loadState(){
+      try{
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if(!raw) return structuredClone(DEFAULT_STATE);
+        const parsed = JSON.parse(raw);
+        // simpele validatie
+        if(!Array.isArray(parsed.starters) || !Array.isArray(parsed.reserves)) throw 0;
+        return { starters: [...parsed.starters], reserves: [...parsed.reserves] };
+      }catch{
+        return structuredClone(DEFAULT_STATE);
+      }
+    }
+    function saveState(){
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    }
+
+    /***************
+     * RENDER
+     ***************/
+    const startersEl = document.getElementById("starters");
+    const reservesEl = document.getElementById("reserves");
+
+    function render(){
+      // starters
+      startersEl.innerHTML = "";
+      for(let i=0;i<SLOT_COUNT;i++){
+        const name = state.starters[i] ?? null;
+        const slot = document.createElement("div");
+        slot.className = "slot" + (name ? "" : " empty");
+        slot.dataset.slotIndex = String(i);
+        slot.setAttribute("role","gridcell");
+        slot.setAttribute("aria-label", name ? `Positie ${i+1}: ${name}` : `Positie ${i+1} (leeg)`);
+        slot.addEventListener("dragover", onDragOver);
+        slot.addEventListener("dragleave", onDragLeave);
+        slot.addEventListener("drop", onDropOnSlot);
+        slot.addEventListener("click", onClickSlot);
+        if(name){ slot.textContent = name; }
+        startersEl.appendChild(slot);
+      }
+
+      // reserves
+      reservesEl.innerHTML = "";
+      state.reserves.forEach((name, index)=>{
+        const p = createPlayerEl(name, index);
+        reservesEl.appendChild(p);
+      });
+
+      // droppen op reserves (om uit basis te halen of te herordenen)
+      reservesEl.addEventListener("dragover", onDragOver);
+      reservesEl.addEventListener("dragleave", onDragLeave);
+      reservesEl.addEventListener("drop", onDropOnReserves);
+    }
+
+    function createPlayerEl(name, index){
+      const el = document.createElement("div");
+      el.className = "player";
+      el.textContent = name;
+      el.draggable = true;
+      el.dataset.name = name;
+      el.dataset.index = index;
+      el.setAttribute("role","listitem");
+      // DnD handlers
+      el.addEventListener("dragstart", onDragStart);
+      el.addEventListener("dragend", onDragEnd);
+      // Tap-to-move: selecteer en klik op slot
+      el.addEventListener("click", ()=> selectPlayer(name));
+      return el;
+    }
+
+    /***************
+     * DRAG & DROP
+     ***************/
+    let dragged = null; // {type:"reserve"|"slot", name, fromIndex}
+    let selectedName = null; // click/tap modus
+
+    function onDragStart(e){
+      const name = this.dataset.name;
+      dragged = { type:"reserve", name, fromIndex: Number(this.dataset.index) };
+      e.dataTransfer.setData("text/plain", name);
+      // minimal ghost
+      if (e.dataTransfer.setDragImage) {
+        const img = new Image(); img.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"/>'; e.dataTransfer.setDragImage(img, 0, 0);
+      }
+    }
+    function onDragEnd(){ dragged = null; document.querySelectorAll('.drag-over').forEach(el=>el.classList.remove('drag-over')); }
+
+    function onDragOver(e){ e.preventDefault(); this.classList.add('drag-over'); }
+    function onDragLeave(){ this.classList.remove('drag-over'); }
+
+    function onDropOnSlot(e){
+      e.preventDefault(); this.classList.remove('drag-over');
+      if(!dragged){ return; }
+
+      const slotIndex = Number(this.dataset.slotIndex);
+      const currentName = state.starters[slotIndex] ?? null;
+
+      // Bron: reserve of ander slot
+      if(dragged.type === "reserve"){
+        const incoming = dragged.name;
+
+        if(!currentName){
+          // lege plek -> plaats
+          state.starters[slotIndex] = incoming;
+          // verwijder uit reserves
+          state.reserves.splice(dragged.fromIndex,1);
+        }else{
+          // swap: zet slotspeler terug naar reserves op dezelfde plek
+          state.starters[slotIndex] = incoming;
+          state.reserves.splice(dragged.fromIndex,1, currentName);
+        }
+      } else if(dragged.type === "slot"){
+        const from = dragged.fromIndex;
+        const incoming = state.starters[from];
+        if(from === slotIndex) return;
+        if(!currentName){
+          state.starters[slotIndex] = incoming;
+          state.starters[from] = null;
+        } else {
+          state.starters[slotIndex] = incoming;
+          state.starters[from] = currentName;
+        }
+      }
+      dragged = null; saveState(); render();
+    }
+
+    function onDropOnReserves(e){
+      e.preventDefault(); this.classList.remove('drag-over');
+      if(!dragged) return;
+
+      // van slot naar reserves
+      if(dragged.type === "slot"){
+        const from = dragged.fromIndex;
+        const name = state.starters[from];
+        if(name){
+          state.starters[from] = null;
+
+          // plaats op drop-positie (reordering)
+          const after = document.elementFromPoint(e.clientX, e.clientY)?.closest('.player');
+          if(after && this.contains(after)){
+            const idx = Number(after.dataset.index) + 1;
+            state.reserves.splice(idx,0,name);
+          } else {
+            state.reserves.push(name);
+          }
+          saveState(); render();
+        }
+      }
+      // reserve->reserve reorder
+      if(dragged.type === "reserve"){
+        const after = document.elementFromPoint(e.clientX, e.clientY)?.closest('.player');
+        const name = dragged.name;
+        const from = dragged.fromIndex;
+        let to = state.reserves.length;
+
+        if(after && this.contains(after)){
+          to = Number(after.dataset.index) + 1;
+        }
+        if(to > from) to--; // correctie door verwijderen vóór invoegen
+        state.reserves.splice(from,1);
+        state.reserves.splice(to,0,name);
+        saveState(); render();
+      }
+      dragged = null;
+    }
+
+    // Sleep vanuit slots zelf (voor swap of terug naar reserves)
+    startersEl.addEventListener("mousedown", (e)=>{
+      const slot = e.target.closest(".slot");
+      if(!slot) return;
+      const i = Number(slot.dataset.slotIndex);
+      if(state.starters[i]){
+        slot.draggable = true;
+        slot.addEventListener("dragstart", (ev)=>{
+          dragged = { type:"slot", fromIndex:i };
+          ev.dataTransfer.setData("text/plain", state.starters[i]);
+          if (ev.dataTransfer.setDragImage) {
+            const img = new Image(); img.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"/>'; ev.dataTransfer.setDragImage(img, 0, 0);
+          }
+        }, {once:true});
+        slot.addEventListener("dragend", onDragEnd, {once:true});
+      }
+    });
+
+    /***************
+     * TAP / CLICK modus
+     ***************/
+    function selectPlayer(name){
+      selectedName = name;
+      // highlight selectie (optioneel simpel)
+      document.querySelectorAll(".player").forEach(p=>{
+        p.style.outline = p.dataset.name === name ? "2px solid var(--focus)" : "";
+        p.style.outlineOffset = "2px";
+      });
+    }
+    function onClickSlot(){
+      const i = Number(this.dataset.slotIndex);
+      if(selectedName){
+        const fromIndex = state.reserves.indexOf(selectedName);
+        if(fromIndex !== -1){
+          const currentName = state.starters[i] ?? null;
+          state.starters[i] = selectedName;
+          currentName == null
+            ? state.reserves.splice(fromIndex,1)
+            : state.reserves.splice(fromIndex,1,currentName);
+          selectedName = null;
+          document.querySelectorAll(".player").forEach(p=>p.style.outline="");
+          saveState(); render(); return;
+        }
+      }
+      // Klik op gevuld slot -> terug naar reserves
+      if(state.starters[i]){
+        const name = state.starters[i];
+        state.starters[i] = null;
+        state.reserves.push(name);
+        saveState(); render();
+      }
+    }
+
+    /***************
+     * IMPORT / EXPORT / RESET
+     ***************/
+    document.getElementById("exportJson").addEventListener("click", ()=>{
+      const data = JSON.stringify(state, null, 2);
+      const blob = new Blob([data], {type:"application/json"});
+      const url = URL.createObjectURL(blob);
+      const a = Object.assign(document.createElement("a"), {href:url, download:"opstelling.json"});
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    });
+
+    document.getElementById("importJson").addEventListener("click", ()=>{
+      const inp = document.createElement("input");
+      inp.type = "file"; inp.accept = "application/json";
+      inp.onchange = () => {
+        const file = inp.files[0]; if(!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          try{
+            const obj = JSON.parse(reader.result);
+            if(Array.isArray(obj.starters) && Array.isArray(obj.reserves)){
+              state = {
+                starters: obj.starters.slice(0, SLOT_COUNT).concat(Array(Math.max(0, SLOT_COUNT - obj.starters.length)).fill(null)),
+                reserves: obj.reserves
+              };
+              saveState(); render();
+            } else { alert("Ongeldig JSON-formaat."); }
+          } catch { alert("Kon JSON niet lezen."); }
+        };
+        reader.readAsText(file);
+      };
+      inp.click();
+    });
+
+    document.getElementById("resetAll").addEventListener("click", ()=>{
+      if(confirm("Alles resetten naar de standaardopstelling?")){
+        state = structuredClone(DEFAULT_STATE);
+        saveState(); render();
+      }
+    });
+
+    // init
+    render();
+
+  </script>
+</body>
+</html>
