@@ -661,48 +661,35 @@ function assignPlayerToSlot(name,slotEl){
 
 /* ====== SPEELTIJD TELLEN ====== */
 function computeQuarterTotals(prefix){
-  const totals = new Map(); // name -> aantal kwartdelen
-  // hoofdslots = 1.0
+  // cap per speler per kwart op max 1.0
+  const totals = new Map();    // name -> kwartdelen
+  const seenInField = new Set(); // spelers die al 1.0 hebben (veld)
+
+  // 1) hoofdslots: 1.0 en markeren als 'veld'
   SLOT_KEYS.forEach(k=>{
     const el = document.querySelector(`[data-slot="${prefix}-${k}"]`);
     const name = normalizeName(el?.textContent);
-    if(name){ totals.set(name, (totals.get(name)||0) + 1.0); }
+    if(name){
+      totals.set(name, Math.min(1.0, (totals.get(name)||0) + 1.0));
+      seenInField.add(name);
+    }
   });
-  // staging = 0.5
+
+  // 2) staging-slots: alleen tellen als speler nog niet in 'veld' staat
+  //    en cap blijft max 1.0
   STAGING_KEYS.forEach(k=>{
     const el = document.querySelector(`[data-slot="${prefix}-${k}"]`);
     const name = normalizeName(el?.textContent);
-    if(name){ totals.set(name, (totals.get(name)||0) + 0.5); }
+    if(name && !seenInField.has(name)){
+      const next = (totals.get(name)||0) + 0.5;
+      totals.set(name, Math.min(1.0, next));
+    }
   });
+
+  // reserves: 0 (niks doen)
   return totals;
 }
-function computeAllTotals(){
-  const sum = new Map();
-  ['q1','q2','q3','q4'].forEach(q=>{
-    const t = computeQuarterTotals(q);
-    t.forEach((v,name)=> sum.set(name, (sum.get(name)||0)+v));
-  });
-  // zorg dat alle spelers erin staan
-  state.players.forEach(p=>{ if(!sum.has(p.name)) sum.set(p.name, 0); });
-  return sum;
-}
-function updateTotalsUI(){
-  const list = document.getElementById('totalsList');
-  if(!list) return;
-  const nf = new Intl.NumberFormat('nl-NL', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
-  const sum = computeAllTotals();
 
-  const playersByOrder = [...state.players].sort((a,b)=> a.order - b.order)
-    .map(p => ({ name:p.name, val: sum.get(p.name) ?? 0 }));
-
-  list.innerHTML = '';
-  playersByOrder.forEach(({name,val})=>{
-    const li = document.createElement('li');
-    const formatted = nf.format(val).replace('.', ','); // 3.5 -> 3,5
-    li.textContent = `${name}: ${formatted} kwart`;
-    list.appendChild(li);
-  });
-}
 
 /* ====== BUTTONS ====== */
 document.getElementById('generateBtn').addEventListener('click',()=>{renderPlayers();generateAll();});
