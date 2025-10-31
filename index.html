@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Teamopstelling 3-3-1 – 4 kwarten (v3.4.1-touch)</title>
+  <title>Teamopstelling 3-3-1 – 4 kwarten (v3.4.2-touch)</title>
   <style>
 *{box-sizing:border-box}html,body{margin:0;padding:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial,sans-serif;color:#111}
 header{padding:16px 20px;border-bottom:1px solid #eee}
@@ -33,12 +33,8 @@ select, input[type="text"], input[type="number"]{padding:6px;border:1px solid #d
 .row.staging .staging-slot{background:#f8fff8;border-style:dashed}
 .reserves{padding:8px;background:#e7f3ff;border:1px solid #bcd6f8;border-radius:10px}
 .reserves ol{margin:6px 0 0 16px;min-height:44px;border:1px dashed #bcd6f8;border-radius:8px;padding:8px;background:#e7f3ff}
-.reserves li{padding:6px 8px;border:1px solid #bcd6f8;border-radius:6px;margin:6px 0;background:#e7f3ff;cursor:grab;}
-
-/* DnD visual cues */
+.reserves li{padding:6px 8px;border:1px solid #bcd6f8;border-radius:6px;margin:6px 0;background:#e7f3ff;cursor:grab}
 .droppable{box-shadow:0 0 0 2px #a3d2a3 inset}
-
-/* Picker modal */
 footer{border-top:1px solid #eee;padding:12px 20px;color:#666}
 .picker{position:fixed;inset:0;background:rgba(0,0,0,.32);display:flex;align-items:center;justify-content:center}
 .picker.hidden{display:none}
@@ -51,11 +47,11 @@ footer{border-top:1px solid #eee;padding:12px 20px;color:#666}
 #pickerList li{padding:8px 10px;border-bottom:1px solid #f5f5f5;display:flex;justify-content:space-between;align-items:center}
 #pickerList li:last-child{border-bottom:none}
 #pickerList li button{padding:6px 10px;border:1px solid #ddd;background:#fff;border-radius:6px;cursor:pointer}
-
 /* ---- iOS touch & tap fallback ---- */
 .slot, .staging-slot, .reserves li { touch-action: none; -webkit-user-select: none; user-select: none; }
 html, body { overscroll-behavior: contain; }
 .reserves li.selected { outline: 2px solid #6ab1ff; }
+.slot.selected, .staging-slot.selected { outline: 2px solid #6ab1ff; }
 .slot.tap-target, .staging-slot.tap-target, .reserve-list.tap-target { box-shadow:0 0 0 2px #6ab1ff inset; }
   </style>
 </head>
@@ -356,7 +352,7 @@ function fillQuarter(prefix,gk,field,reserves){
   const resOl=document.getElementById(`${prefix}-res`);resOl.innerHTML='';
   (reserves||[]).forEach(r=>{const li=document.createElement('li');li.textContent=r.name;li.className='reserve-item';li.draggable=true;li.dataset.name=r.name;resOl.appendChild(li);});
   hookReserveDnD(resOl);
-  hookReserveTap(resOl); // iOS tap fallback voor nieuwe items
+  hookReserveTap(resOl); // iOS tap fallback
 }
 function generateAll(){
   const roster=[...state.players];
@@ -367,10 +363,9 @@ function generateAll(){
   enableDnD();
   hookSlotClicks();
   hookReserveListsDropZones();
-  enableTapTargets(); // iOS tap fallback
 }
 
-/* ==== MOUSE DND (v3.4) ==== */
+/* ==== DESKTOP/MOUSE DND ==== */
 let dragName=null,dragSource=null,dragQuarter=null,originEl=null,currentDraggedReserveItem=null;
 function sameQuarter(targetEl){
   const ds=targetEl?.dataset?.slot;if(ds) return ds.split('-')[0]===dragQuarter;
@@ -429,10 +424,9 @@ function hookReserveListsDropZones(){
       if(dragSource==='slot'||dragSource==='staging'){if(originEl){const name=originEl.textContent;if(name&&name!=='—')appendToReserve(dragQuarter,name);originEl.textContent='—';originEl.dataset.assigned='';}}
       else if(dragSource==='reserve'){if(currentDraggedReserveItem&&currentDraggedReserveItem.parentElement){currentDraggedReserveItem.parentElement.removeChild(currentDraggedReserveItem);ol.appendChild(currentDraggedReserveItem);}}
     });
-
-    /* TAP fallback op reserve-lijst */
+    // TAP fallback op reserve-lijst (plaats van slot->reserves of reorder reserve)
     ol.addEventListener('click', ()=>{ if(tapSel) handleTapPlaceOnReserveList(ol); });
-    ol.addEventListener('touchend', (e)=>{ if(tapSel){ if(e.cancelable) e.preventDefault(); handleTapPlaceOnReserveList(ol); }});
+    ol.addEventListener('touchend', (e)=>{ if(tapSel && !dragName){ if(e.cancelable) e.preventDefault(); handleTapPlaceOnReserveList(ol); }});
   });
 }
 function appendToReserve(qPrefix,name){
@@ -449,24 +443,43 @@ function removeNameFromQuarter(q,name){
   if(li&&li.parentElement){li.parentElement.removeChild(li);}
 }
 
-/* ==== EDIT MODE (picker) ==== */
+/* ==== EDIT MODE (picker) + TAP START VAN SLOT ==== */
 const editMode=document.getElementById('editMode');
 const picker=document.getElementById('picker');
 const pickerList=document.getElementById('pickerList');
 const pickerFilter=document.getElementById('pickerFilter');
 const pickerClose=document.getElementById('pickerClose');
 let activeSlot=null;
+
 function hookSlotClicks(){
   document.querySelectorAll('.slot,.staging-slot').forEach(slot=>{
-    slot.addEventListener('click',()=>{if(!editMode.checked)return;openPicker(slot);});
-    editMode.addEventListener('change',()=>{slot.classList.toggle('editable',editMode.checked);});
+    // Klik: ofwel plaatsing (als we al iets geselecteerd hebben), of picker in bewerkmodus
+    slot.addEventListener('click', (ev)=>{
+      if (tapSel && !editMode.checked) { handleTapPlaceOnSlot(slot); return; }
+      if(editMode.checked){ openPicker(slot); }
+    });
+
+    editMode.addEventListener('change',()=>{ slot.classList.toggle('editable',editMode.checked); });
     slot.classList.toggle('editable',editMode.checked);
 
-    /* TAP fallback op slot/staging als doel */
-    slot.addEventListener('click', ()=>{ if(tapSel) handleTapPlaceOnSlot(slot); });
-    slot.addEventListener('touchend', (e)=>{ if(tapSel){ if(e.cancelable) e.preventDefault(); handleTapPlaceOnSlot(slot); }});
+    // TAP-SELECT START vanaf slot/staging (niet in bewerkmodus)
+    const startFromSlot = (e)=>{
+      if (editMode.checked) return;
+      if (document.getElementById('lockDrag').checked) return;
+      if (tapSel) return;
+      const name = slot.textContent?.trim();
+      if (!name || name === '—') return;
+      const q = slot.dataset.slot.split('-')[0];
+      clearTapState();
+      slot.classList.add('selected');
+      startTapSelect(name, slot.classList.contains('slot')?'slot':'staging', q, slot);
+      if (e && e.cancelable) e.preventDefault();
+    };
+    slot.addEventListener('touchend', startFromSlot, {passive:false});
+    slot.addEventListener('dblclick', startFromSlot);
   });
 }
+
 function openPicker(slotEl){activeSlot=slotEl;buildPickerList('');picker.classList.remove('hidden');pickerFilter.value='';pickerFilter.focus();}
 function closePicker(){picker.classList.add('hidden');activeSlot=null;}
 pickerClose.addEventListener('click',closePicker);
@@ -569,16 +582,6 @@ function hookReserveTap(list){
     });
   });
 }
-function enableTapTargets(){
-  document.querySelectorAll('.slot,.staging-slot').forEach(el=>{
-    el.addEventListener('click', ()=>{ if(tapSel) handleTapPlaceOnSlot(el); });
-    el.addEventListener('touchend', (e)=>{ if(tapSel){ if(e.cancelable) e.preventDefault(); handleTapPlaceOnSlot(el); }});
-  });
-  document.querySelectorAll('.reserve-list').forEach(ol=>{
-    ol.addEventListener('click', ()=>{ if(tapSel) handleTapPlaceOnReserveList(ol); });
-    ol.addEventListener('touchend', (e)=>{ if(tapSel){ if(e.cancelable) e.preventDefault(); handleTapPlaceOnReserveList(ol); }});
-  });
-}
 
 /* ==== BUTTONS ==== */
 document.getElementById('generateBtn').addEventListener('click',()=>{renderPlayers();generateAll();});
@@ -596,8 +599,7 @@ document.getElementById('resetBtn').addEventListener('click',()=>{
 document.getElementById('printBtn').addEventListener('click',()=>window.print());
 
 /* ==== INIT ==== */
-generateAll();            // bouw Q1..Q4
-enableTapTargets();       // activeer iOS tap fallback
+generateAll(); // bouw Q1..Q4
 </script>
 </body>
 </html>
