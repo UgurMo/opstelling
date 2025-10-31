@@ -541,4 +541,83 @@ function activateReserveItem(li){
 }
 
 function appendToReserve(qPrefix,name){
-  const ol=document.getElementById(`${q
+  const ol=document.getElementById(`${qPrefix}-res`);
+  const li=makeReserveItem(name);
+  ol.appendChild(li);
+  activateReserveItem(li);
+}
+
+function resetDragState(){ dragName=null; dragSource=null; dragQuarter=null; originEl=null; currentDraggedReserveItem=null; }
+
+/* ====== PICKER (klikmodus) ====== */
+const editMode=document.getElementById('editMode');
+const picker=document.getElementById('picker');
+const pickerList=document.getElementById('pickerList');
+const pickerFilter=document.getElementById('pickerFilter');
+const pickerClose=document.getElementById('pickerClose');
+let activeSlot=null;
+
+function hookSlotClicks(){
+  document.querySelectorAll('.slot, .staging-slot').forEach(el=>{
+    el.addEventListener('click',()=>{
+      if(!editMode.checked) return;
+      activeSlot=el; buildPickerList(''); picker.classList.remove('hidden'); pickerFilter.value=''; pickerFilter.focus();
+    });
+  });
+}
+function closePicker(){ picker.classList.add('hidden'); activeSlot=null; }
+pickerClose.addEventListener('click',closePicker);
+picker.addEventListener('click',e=>{ if(e.target===picker) closePicker(); });
+pickerFilter.addEventListener('input',()=>buildPickerList(pickerFilter.value||''));
+function buildPickerList(filter){
+  const roster=[...state.players];
+  const qPrefix=activeSlot.dataset.slot.split('-')[0];
+  const usedNames=[...document.querySelectorAll(`[data-slot^="${qPrefix}-"]`)].map(el=>el.dataset.assigned).filter(Boolean);
+  pickerList.innerHTML='';
+  roster
+    .filter(p=>p.name.toLowerCase().includes(filter.toLowerCase()))
+    .sort((a,b)=>a.order-b.order)
+    .forEach(p=>{
+      const li=document.createElement('li');
+      const span=document.createElement('span'); span.textContent=`${p.name} · ${p.role} · ${p.status}`;
+      const btn=document.createElement('button'); btn.textContent=usedNames.includes(p.name)?'Verplaatsen':'Kies';
+      btn.addEventListener('click',()=>assignPlayerToSlot(p.name, activeSlot));
+      li.appendChild(span); li.appendChild(btn); pickerList.appendChild(li);
+    });
+  const liEmpty=document.createElement('li'); const spanEmpty=document.createElement('span'); spanEmpty.textContent='— (leegmaken)';
+  const btnEmpty=document.createElement('button'); btnEmpty.textContent='Leeg';
+  btnEmpty.addEventListener('click',()=>assignPlayerToSlot('', activeSlot));
+  liEmpty.appendChild(spanEmpty); liEmpty.appendChild(btnEmpty); pickerList.appendChild(liEmpty);
+}
+function assignPlayerToSlot(name,slotEl){
+  const qPrefix=slotEl.dataset.slot.split('-')[0];
+  if(name){ removeNameFromQuarter(qPrefix, name); }
+  const prev=slotEl.textContent;
+  slotEl.textContent=name||'—'; slotEl.dataset.assigned=name||'';
+  if(prev && prev!=='—' && slotEl.classList.contains('slot') && name){
+    appendToReserve(qPrefix, prev);
+  }
+  closePicker();
+}
+
+/* ====== BUTTONS ====== */
+document.getElementById('generateBtn').addEventListener('click',()=>{renderPlayers();generateAll();});
+document.getElementById('saveBtn').addEventListener('click',()=>{saveState(state);alert('Opgeslagen! Namen, rollen en statussen staan lokaal opgeslagen.');});
+document.getElementById('loadDefaultsBtn').addEventListener('click',()=>{
+  if(!confirm('Standaardteam laden (Jim, Levi, Lou, ...)? Dit vervangt alleen de spelerslijst.')) return;
+  state.players=JSON.parse(JSON.stringify(DEFAULT_PLAYERS)); saveState(state); renderPlayers(); generateAll();
+});
+document.getElementById('resetBtn').addEventListener('click',()=>{
+  if(confirm('Reset naar lege standaard (Speler 1..11)?')){
+    state={players:Array.from({length:11},(_,i)=>({order:i+1,name:`Speler ${i+1}`,role:i===0?'Keeper':'Veldspeler',status:'Aanwezig'}))};
+    saveState(state); renderPlayers(); generateAll();
+  }
+});
+document.getElementById('printBtn').addEventListener('click',()=>window.print());
+
+/* ====== INIT ====== */
+renderPlayers();
+generateAll();
+</script>
+</body>
+</html>
