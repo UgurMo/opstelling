@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Teamopstelling 3-3-1 – 4 kwarten</title>
+  <title>Teamopstelling 3-3-1 – 4 kwarten (v3.4.1-touch)</title>
   <style>
 *{box-sizing:border-box}html,body{margin:0;padding:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial,sans-serif;color:#111}
 header{padding:16px 20px;border-bottom:1px solid #eee}
@@ -33,8 +33,12 @@ select, input[type="text"], input[type="number"]{padding:6px;border:1px solid #d
 .row.staging .staging-slot{background:#f8fff8;border-style:dashed}
 .reserves{padding:8px;background:#e7f3ff;border:1px solid #bcd6f8;border-radius:10px}
 .reserves ol{margin:6px 0 0 16px;min-height:44px;border:1px dashed #bcd6f8;border-radius:8px;padding:8px;background:#e7f3ff}
-.reserves li{padding:6px 8px;border:1px solid #bcd6f8;border-radius:6px;margin:6px 0;background:#e7f3ff;cursor:grab}
+.reserves li{padding:6px 8px;border:1px solid #bcd6f8;border-radius:6px;margin:6px 0;background:#e7f3ff;cursor:grab;}
+
+/* DnD visual cues */
 .droppable{box-shadow:0 0 0 2px #a3d2a3 inset}
+
+/* Picker modal */
 footer{border-top:1px solid #eee;padding:12px 20px;color:#666}
 .picker{position:fixed;inset:0;background:rgba(0,0,0,.32);display:flex;align-items:center;justify-content:center}
 .picker.hidden{display:none}
@@ -47,11 +51,12 @@ footer{border-top:1px solid #eee;padding:12px 20px;color:#666}
 #pickerList li{padding:8px 10px;border-bottom:1px solid #f5f5f5;display:flex;justify-content:space-between;align-items:center}
 #pickerList li:last-child{border-bottom:none}
 #pickerList li button{padding:6px 10px;border:1px solid #ddd;background:#fff;border-radius:6px;cursor:pointer}
-@media print{
-  header,.controls,.players,footer,.picker{display:none}
-  .quarters{grid-template-columns:1fr 1fr}
-  body{background:#fff}
-}
+
+/* ---- iOS touch & tap fallback ---- */
+.slot, .staging-slot, .reserves li { touch-action: none; -webkit-user-select: none; user-select: none; }
+html, body { overscroll-behavior: contain; }
+.reserves li.selected { outline: 2px solid #6ab1ff; }
+.slot.tap-target, .staging-slot.tap-target, .reserve-list.tap-target { box-shadow:0 0 0 2px #6ab1ff inset; }
   </style>
 </head>
 <body>
@@ -268,6 +273,7 @@ footer{border-top:1px solid #eee;padding:12px 20px;color:#666}
   </footer>
 
 <script>
+/* ==== STATE ==== */
 const DEFAULT_PLAYERS = [
   {order:1, name:'Jim', role:'Keeper', status:'Aanwezig'},
   {order:2, name:'Levi', role:'Veldspeler', status:'Aanwezig'},
@@ -286,6 +292,7 @@ function loadState(){try{const raw=localStorage.getItem(STORAGE_KEY);if(!raw)ret
 function saveState(s){localStorage.setItem(STORAGE_KEY,JSON.stringify(s))}
 let state=loadState();
 
+/* ==== PLAYERS TABLE ==== */
 const playersBody=document.getElementById('playersBody');
 renderPlayers();
 function renderPlayers(){
@@ -322,7 +329,7 @@ function renderPlayers(){
   });
 }
 
-// logic copied from v3.4
+/* ==== SELECTION LOGIC ==== */
 function pickGK(players, allowLate){
   const eligible=players.filter(p=>p.status!=='Afwezig'&&(allowLate||p.status==='Aanwezig')).sort((a,b)=>a.order-b.order);
   const keepers=eligible.filter(p=>p.role==='Keeper');
@@ -339,6 +346,7 @@ function pickReservesQ1(players,gk){
   return [...late,...presentAfter7].slice(0,3);
 }
 
+/* ==== RENDER QUARTERS ==== */
 function fillQuarter(prefix,gk,field,reserves){
   const slots=['d1','d2','d3','m1','m2','m3','f1'];
   const gkEl=document.querySelector(`[data-slot="${prefix}-gk"]`);
@@ -348,21 +356,25 @@ function fillQuarter(prefix,gk,field,reserves){
   const resOl=document.getElementById(`${prefix}-res`);resOl.innerHTML='';
   (reserves||[]).forEach(r=>{const li=document.createElement('li');li.textContent=r.name;li.className='reserve-item';li.draggable=true;li.dataset.name=r.name;resOl.appendChild(li);});
   hookReserveDnD(resOl);
+  hookReserveTap(resOl); // iOS tap fallback voor nieuwe items
 }
-
 function generateAll(){
   const roster=[...state.players];
   const gk1=pickGK(roster,false);const {field:f1}=pickField(roster,gk1,false);const r1=pickReservesQ1(roster,gk1);fillQuarter('q1',gk1,f1,r1);
   const gk2=pickGK(roster,true);const {field:f2,extras:ex2}=pickField(roster,gk2,true);fillQuarter('q2',gk2,f2,ex2.slice(0,3));
   const gk3=pickGK(roster,true);const {field:f3,extras:ex3}=pickField(roster,gk3,true);fillQuarter('q3',gk3,f3,ex3.slice(0,3));
   const gk4=pickGK(roster,true);const {field:f4,extras:ex4}=pickField(roster,gk4,true);fillQuarter('q4',gk4,f4,ex4.slice(0,3));
-  enableDnD();hookSlotClicks();hookReserveListsDropZones();
+  enableDnD();
+  hookSlotClicks();
+  hookReserveListsDropZones();
+  enableTapTargets(); // iOS tap fallback
 }
 
-let dragName=null,dragSource=null,dragQuarter=null,originEl=null;
+/* ==== MOUSE DND (v3.4) ==== */
+let dragName=null,dragSource=null,dragQuarter=null,originEl=null,currentDraggedReserveItem=null;
 function sameQuarter(targetEl){
-  const ds=targetEl.dataset.slot;if(ds) return ds.split('-')[0]===dragQuarter;
-  const dq=targetEl.closest('.reserve-list')?.dataset.quarter;return dq===dragQuarter;
+  const ds=targetEl?.dataset?.slot;if(ds) return ds.split('-')[0]===dragQuarter;
+  const dq=targetEl?.closest?.('.reserve-list')?.dataset?.quarter;return dq===dragQuarter;
 }
 function enableDnD(){
   document.querySelectorAll('.slot').forEach(slot=>{
@@ -399,7 +411,6 @@ function enableDnD(){
     st.addEventListener('dragend',()=>{st.classList.remove('dragging');unmarkDroppables();resetDragState();});
   });
 }
-let currentDraggedReserveItem=null;
 function hookReserveDnD(resList){
   resList.querySelectorAll('.reserve-item').forEach(li=>{
     li.addEventListener('dragstart',e=>{
@@ -412,19 +423,23 @@ function hookReserveDnD(resList){
 function hookReserveListsDropZones(){
   document.querySelectorAll('.reserve-list').forEach(ol=>{
     ol.addEventListener('dragover',e=>{if(document.getElementById('lockDrag').checked)return;if(ol.dataset.quarter!==dragQuarter)return;e.preventDefault();ol.classList.add('droppable');});
-    ol.addEventListener('dragleave',()=>ol.classList.remove('droppable'));
+    ol.addEventListener('dragleave',()=> ol.classList.remove('droppable'));
     ol.addEventListener('drop',e=>{
       if(document.getElementById('lockDrag').checked)return;if(ol.dataset.quarter!==dragQuarter)return;e.preventDefault();ol.classList.remove('droppable');
       if(dragSource==='slot'||dragSource==='staging'){if(originEl){const name=originEl.textContent;if(name&&name!=='—')appendToReserve(dragQuarter,name);originEl.textContent='—';originEl.dataset.assigned='';}}
       else if(dragSource==='reserve'){if(currentDraggedReserveItem&&currentDraggedReserveItem.parentElement){currentDraggedReserveItem.parentElement.removeChild(currentDraggedReserveItem);ol.appendChild(currentDraggedReserveItem);}}
     });
+
+    /* TAP fallback op reserve-lijst */
+    ol.addEventListener('click', ()=>{ if(tapSel) handleTapPlaceOnReserveList(ol); });
+    ol.addEventListener('touchend', (e)=>{ if(tapSel){ if(e.cancelable) e.preventDefault(); handleTapPlaceOnReserveList(ol); }});
   });
 }
 function appendToReserve(qPrefix,name){
-  const ol=document.getElementById(`${qPrefix}-res`);const li=document.createElement('li');li.textContent=name;li.className='reserve-item';li.draggable=true;li.dataset.name=name;ol.appendChild(li);hookReserveDnD(ol);
+  const ol=document.getElementById(`${qPrefix}-res`);const li=document.createElement('li');li.textContent=name;li.className='reserve-item';li.draggable=true;li.dataset.name=name;ol.appendChild(li);hookReserveDnD(ol);hookReserveTap(ol);
 }
 function markDroppables(on,q){document.querySelectorAll(`[data-slot^="${q}-"]`).forEach(el=>{if(on)el.classList.add('droppable');else el.classList.remove('droppable');});const ol=document.getElementById(`${q}-res`);if(on)ol.classList.add('droppable');else ol.classList.remove('droppable');}
-function unmarkDroppables(){document.querySelectorAll('.droppable').forEach(el=>el.classList.remove('droppable'));}
+function unmarkDroppables(){document.querySelectorAll('.droppable').forEach(el=>el.classList.remove('droppable'))}
 function clearOriginAfterDrop(){if(!originEl)return;if(originEl.classList.contains('slot')||originEl.classList.contains('staging-slot')){originEl.textContent='—';originEl.dataset.assigned='';}if(currentDraggedReserveItem&&currentDraggedReserveItem.parentElement){currentDraggedReserveItem.parentElement.removeChild(currentDraggedReserveItem);}}
 function resetDragState(){dragName=null;dragSource=null;dragQuarter=null;originEl=null;currentDraggedReserveItem=null;}
 function removeNameFromQuarter(q,name){
@@ -434,13 +449,24 @@ function removeNameFromQuarter(q,name){
   if(li&&li.parentElement){li.parentElement.removeChild(li);}
 }
 
-// Picker
+/* ==== EDIT MODE (picker) ==== */
 const editMode=document.getElementById('editMode');
 const picker=document.getElementById('picker');
 const pickerList=document.getElementById('pickerList');
 const pickerFilter=document.getElementById('pickerFilter');
 const pickerClose=document.getElementById('pickerClose');
 let activeSlot=null;
+function hookSlotClicks(){
+  document.querySelectorAll('.slot,.staging-slot').forEach(slot=>{
+    slot.addEventListener('click',()=>{if(!editMode.checked)return;openPicker(slot);});
+    editMode.addEventListener('change',()=>{slot.classList.toggle('editable',editMode.checked);});
+    slot.classList.toggle('editable',editMode.checked);
+
+    /* TAP fallback op slot/staging als doel */
+    slot.addEventListener('click', ()=>{ if(tapSel) handleTapPlaceOnSlot(slot); });
+    slot.addEventListener('touchend', (e)=>{ if(tapSel){ if(e.cancelable) e.preventDefault(); handleTapPlaceOnSlot(slot); }});
+  });
+}
 function openPicker(slotEl){activeSlot=slotEl;buildPickerList('');picker.classList.remove('hidden');pickerFilter.value='';pickerFilter.focus();}
 function closePicker(){picker.classList.add('hidden');activeSlot=null;}
 pickerClose.addEventListener('click',closePicker);
@@ -471,7 +497,90 @@ function assignPlayerToSlot(name,slotEl){
   closePicker();
 }
 
-// Buttons
+/* ==== TAP-SELECT FALLBACK (iOS) ==== */
+let tapSel = null; // { name, source:'reserve'|'slot'|'staging', quarter, originEl }
+function clearTapState(){
+  document.querySelectorAll('.selected').forEach(el=>el.classList.remove('selected'));
+  document.querySelectorAll('.tap-target').forEach(el=>el.classList.remove('tap-target'));
+  tapSel = null;
+}
+function startTapSelect(name, source, quarter, originEl){
+  tapSel = { name, source, quarter, originEl };
+  document.querySelectorAll(`[data-slot^="${quarter}-"]`).forEach(el=>el.classList.add('tap-target'));
+  document.getElementById(`${quarter}-res`)?.classList.add('tap-target');
+}
+function handleTapPlaceOnSlot(slot){
+  if(!tapSel) return;
+  const q = slot.dataset.slot.split('-')[0];
+  if(q !== tapSel.quarter) return;
+  const toName = slot.textContent;
+  const name = tapSel.name;
+
+  if(tapSel.source === 'slot'){
+    if(tapSel.originEl !== slot){
+      tapSel.originEl.textContent = toName;
+      tapSel.originEl.dataset.assigned = (toName==='—'?'':toName);
+      slot.textContent = name; slot.dataset.assigned = name;
+    }
+  } else if(tapSel.source === 'reserve' || tapSel.source === 'staging'){
+    removeNameFromQuarter(q, name);
+    if(toName && toName !== '—'){ appendToReserve(q, toName); }
+    slot.textContent = name; slot.dataset.assigned = name;
+    if(tapSel.source === 'staging'){
+      tapSel.originEl.textContent = '—'; tapSel.originEl.dataset.assigned = '';
+    }
+    if(tapSel.source === 'reserve' && tapSel.originEl?.parentElement){
+      tapSel.originEl.parentElement.removeChild(tapSel.originEl);
+    }
+  }
+  clearTapState();
+}
+function handleTapPlaceOnReserveList(list){
+  if(!tapSel) return;
+  const q = list.dataset.quarter;
+  if(q !== tapSel.quarter) return;
+
+  if(tapSel.source === 'slot' || tapSel.source === 'staging'){
+    const name = tapSel.originEl.textContent;
+    if(name && name !== '—') appendToReserve(q, name);
+    tapSel.originEl.textContent = '—'; tapSel.originEl.dataset.assigned = '';
+  } else if(tapSel.source === 'reserve'){
+    if(tapSel.originEl?.parentElement){
+      tapSel.originEl.parentElement.removeChild(tapSel.originEl);
+      list.appendChild(tapSel.originEl);
+    }
+  }
+  clearTapState();
+}
+function hookReserveTap(list){
+  list.querySelectorAll('.reserve-item').forEach(li=>{
+    li.addEventListener('click', ()=>{
+      const q=list.dataset.quarter;
+      clearTapState();
+      li.classList.add('selected');
+      startTapSelect(li.dataset.name||li.textContent, 'reserve', q, li);
+    });
+    li.addEventListener('touchend', (e)=>{
+      if(e.cancelable) e.preventDefault();
+      const q=list.dataset.quarter;
+      clearTapState();
+      li.classList.add('selected');
+      startTapSelect(li.dataset.name||li.textContent, 'reserve', q, li);
+    });
+  });
+}
+function enableTapTargets(){
+  document.querySelectorAll('.slot,.staging-slot').forEach(el=>{
+    el.addEventListener('click', ()=>{ if(tapSel) handleTapPlaceOnSlot(el); });
+    el.addEventListener('touchend', (e)=>{ if(tapSel){ if(e.cancelable) e.preventDefault(); handleTapPlaceOnSlot(el); }});
+  });
+  document.querySelectorAll('.reserve-list').forEach(ol=>{
+    ol.addEventListener('click', ()=>{ if(tapSel) handleTapPlaceOnReserveList(ol); });
+    ol.addEventListener('touchend', (e)=>{ if(tapSel){ if(e.cancelable) e.preventDefault(); handleTapPlaceOnReserveList(ol); }});
+  });
+}
+
+/* ==== BUTTONS ==== */
 document.getElementById('generateBtn').addEventListener('click',()=>{renderPlayers();generateAll();});
 document.getElementById('saveBtn').addEventListener('click',()=>{saveState(state);alert('Opgeslagen! Namen, rollen en statussen staan lokaal opgeslagen.');});
 document.getElementById('loadDefaultsBtn').addEventListener('click',()=>{
@@ -486,7 +595,9 @@ document.getElementById('resetBtn').addEventListener('click',()=>{
 });
 document.getElementById('printBtn').addEventListener('click',()=>window.print());
 
-generateAll();
+/* ==== INIT ==== */
+generateAll();            // bouw Q1..Q4
+enableTapTargets();       // activeer iOS tap fallback
 </script>
 </body>
 </html>
